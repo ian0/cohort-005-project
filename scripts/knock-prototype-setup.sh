@@ -198,95 +198,59 @@ finish() {
 # the whole file before the first prompt, so an edit mid-run can't break it.
 # ──────────────────────────────────────────────────────────────────────────
 
-# copy_text "..." puts text on the clipboard where possible (macOS, WSL, X11/Wayland).
-copy_text() {
-  local text="$1"
-  if   command -v pbcopy   >/dev/null 2>&1; then printf '%s' "$text" | pbcopy
-  elif command -v clip.exe >/dev/null 2>&1; then printf '%s' "$text" | clip.exe
-  elif command -v wl-copy  >/dev/null 2>&1; then printf '%s' "$text" | wl-copy
-  elif command -v xclip    >/dev/null 2>&1; then printf '%s' "$text" | xclip -selection clipboard
-  else note "(no clipboard tool: copy it by hand)"; return 0; fi
-  printf '  %s⧉ copied to clipboard%s\n' "$GREEN" "$RESET"
-}
-
-# paste_field "Field" "value" shows a value, copies it, and waits until it's pasted.
-paste_field() {
-  printf '\n  %s%s:%s %s\n' "$BOLD" "$1" "$RESET" "$2"
-  copy_text "$2"
-  pause "Pasted into \"$1\"? Press Enter"
-}
-
 cd "$(dirname "$0")/.."   # repo root: .env and node_modules live here
 
-DASHBOARD="https://dashboard.knock.app/"
-COMMITS="https://dashboard.knock.app/~/commits"
+# run_node SCRIPT runs a repo script with .env loaded and the system CA store
+# (Node's fetch to Knock fails on this machine without --use-system-ca).
+run_node() { node --use-system-ca --env-file="$ENV_FILE" "$1"; }
+
+# retry_until_ok SCRIPT "what" reruns SCRIPT until it passes or the human gives up.
+retry_until_ok() {
+  while true; do
+    printf '\n'
+    if run_node "$1"; then return 0; fi
+    printf '\n'
+    warn "$2 didn't pass. Fix what's marked ✗ above."
+    confirm "Try again?" || { SKIPPED+=("$2 ($1)"); return 1; }
+  done
+}
 
 run_wizard() {
 
-TOTAL_STAGES=5
+TOTAL_STAGES=3
 
 banner "Knock workflows for the 'Does Knock hold up against Cadence?' prototype"
 
 # ── 1 ──────────────────────────────────────────────────────────────────────
-stage "Open the Development environment"
-say "Both workflows go in Knock's Development environment, where our keys live."
-open_url "$DASHBOARD"
-step "Sign in to the ian0-cohort-005 account if asked."
-step "Check the environment switcher (top left) says Development. Switch to it if not."
-step "Open Workflows in the left sidebar."
-pause "On the Workflows page in Development? Press Enter"
+stage "Create a Knock service token"
+say "A service token lets a script create and commit the two workflows for you,"
+say "through Knock's Management API, instead of clicking through the dashboard."
+note "It's a different credential from KNOCK_API_KEY, and only works on the Management API."
+open_url "https://dashboard.knock.app/~/settings"
+step "In Settings, open the \"Service tokens\" tab."
+step "Click \"+ New token\", name it \"cadence-dev\", and click Generate."
+step "Copy the token (starts knock_st_). Knock won't show it again."
+ask_secret KNOCK_SERVICE_TOKEN "Paste the service token:"
+until [[ "$KNOCK_SERVICE_TOKEN" == knock_st_* ]]; do
+  warn "That doesn't start with knock_st_."
+  ask_secret KNOCK_SERVICE_TOKEN "Paste the service token:"
+done
+write_env KNOCK_SERVICE_TOKEN "$KNOCK_SERVICE_TOKEN"
+pause "Press Enter to continue"
 
 # ── 2 ──────────────────────────────────────────────────────────────────────
-stage "Create the Discussion Reply workflow"
-step "Click to create a new workflow."
-paste_field "Name" "Discussion Reply"
-paste_field "Key (edit it if Knock generated something else)" "discussion-reply"
-step "Create it. Leave categories empty for this one."
-step "On the canvas, add a channel step: In-app feed, channel \"in-app\"."
-step "On that step, click \"Edit content\" to open the template editor."
-paste_field "Markdown body" "**{{ actor.name }}** replied to your Discussion Question on *{{ data.lesson_title }}* ({{ data.course_title }})"
-step "Turn on \"Include click action\"."
-paste_field "Action URL" "{{ data.url }}"
-step "Save the template. Don't commit yet: stage 4 commits both at once."
-pause "Discussion Reply saved? Press Enter"
+stage "Create and commit the two workflows"
+say "Creates discussion-reply and new-enrollment (category: enrollment) in"
+say "Development, each with one In-app feed step, commits them and activates them."
+say "Running it again just updates them."
+retry_until_ok scripts/knock-prototype-push-workflows.mjs "Pushing the workflows" || true
+pause "Press Enter to continue"
 
 # ── 3 ──────────────────────────────────────────────────────────────────────
-stage "Create the New Enrollment workflow"
-step "Back on Workflows, create another new workflow."
-paste_field "Name" "New Enrollment"
-paste_field "Key (edit it if Knock generated something else)" "new-enrollment"
-step "Add the category below. If the create form has no Categories field, add it"
-note "  afterwards from the workflow page: \"...\" menu → Manage workflow → Categories."
-paste_field "Category (case sensitive)" "enrollment"
-step "On the canvas, add a channel step: In-app feed, channel \"in-app\"."
-step "Click \"Edit content\" on that step."
-paste_field "Markdown body" "**{{ actor.name }}** enrolled on *{{ data.course_title }}*"
-step "Turn on \"Include click action\"."
-paste_field "Action URL" "{{ data.url }}"
-step "Save the template."
-pause "New Enrollment saved, with the enrollment category? Press Enter"
-
-# ── 4 ──────────────────────────────────────────────────────────────────────
-stage "Commit both workflows to Development"
-say "Saved drafts only run in Knock's test runner. API triggers need a commit."
-open_url "$COMMITS"
-step "Check the Commits page lists both new workflows (and nothing you didn't mean to change)."
-step "Click \"Commit all\" and give it a message, e.g. \"Knock prototype workflows\"."
-pause "Committed? Press Enter"
-
-# ── 5 ──────────────────────────────────────────────────────────────────────
 stage "Check the workflows against Knock's API"
-say "This triggers both workflows for a throwaway Knock user (wizard-probe), reads"
-say "its feed, mutes the enrollment category and triggers again, then deletes it."
-while true; do
-  printf '\n'
-  if node --use-system-ca --env-file="$ENV_FILE" scripts/knock-prototype-check.mjs; then
-    break
-  fi
-  printf '\n'
-  warn "Not ready yet. Fix what's marked ✗ in the dashboard (and commit again)."
-  confirm "Run the check again?" || { SKIPPED+=("Knock workflows didn't pass scripts/knock-prototype-check.mjs"); break; }
-done
+say "Triggers both workflows for a throwaway Knock user (wizard-probe), reads its"
+say "feed, mutes the enrollment category and triggers again, then deletes the user."
+retry_until_ok scripts/knock-prototype-check.mjs "The workflow check" || true
 pause "Press Enter to finish"
 
 finish
