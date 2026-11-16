@@ -29,6 +29,7 @@ import {
   UserRole,
 } from "~/db/schema";
 import { and, asc, desc, eq, or, sql } from "drizzle-orm";
+import { notifyDiscussionReply } from "~/lib/knock.prototype.server"; // PROTOTYPE (Knock)
 import { Button } from "~/components/ui/button";
 import { Card, CardContent } from "~/components/ui/card";
 import {
@@ -900,12 +901,19 @@ export async function action({ params, request }: Route.ActionArgs) {
         if (!parsed.success) {
           return { ok: false, error: "Enter a comment before posting." };
         }
-        createComment(
+        const created = createComment(
           currentUserId,
           lessonId,
           parsed.data.parentId ?? null,
           parsed.data.body
         );
+        // PROTOTYPE (Knock): real trigger for a Discussion Reply.
+        try {
+          const result = await notifyDiscussionReply(created);
+          console.log("[knock prototype] discussion-reply", result);
+        } catch (error) {
+          console.error("[knock prototype] discussion-reply failed", error);
+        }
         return { ok: true };
       }
 
