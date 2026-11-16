@@ -37,6 +37,19 @@ async function call(method, path, body) {
 }
 
 let failed = false;
+
+// Workflow categories must already exist in the account's preference category
+// catalog. Upserting returns the existing one if it's already there.
+for (const name of new Set(Object.values(workflows).flatMap((w) => w.categories))) {
+  try {
+    await call("PUT", `/preference_categories/${name}`);
+    console.log(`  ✓ preference category "${name}" exists`);
+  } catch (e) {
+    failed = true;
+    console.log(`  ✗ preference category "${name}": ${e.message}`);
+  }
+}
+
 for (const [key, wf] of Object.entries(workflows)) {
   try {
     const qs = new URLSearchParams({
