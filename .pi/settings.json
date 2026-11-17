@@ -1,0 +1,8 @@
+{
+  "defaultThinkingLevel": "high",
+  "subagents": {
+    "defaultSubagentOnlyExtensions": [
+      "/Users/imatthews/.pi/agent/npm/node_modules/pi-web-access/dist/index.js"
+    ]
+  }
+}
