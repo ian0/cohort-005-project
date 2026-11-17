@@ -41,6 +41,10 @@ interface SidebarProps {
   currentUser: CurrentUser | null;
   recentCourses?: RecentCourse[];
   isTeamAdmin?: boolean;
+  // PROTOTYPE (Notification Feed): slots for the feed variants.
+  headerExtra?: React.ReactNode;
+  navExtra?: React.ReactNode;
+  footerExtra?: React.ReactNode;
 }
 
 interface NavItem {
@@ -117,6 +121,9 @@ export function Sidebar({
   currentUser,
   recentCourses = [],
   isTeamAdmin = false,
+  headerExtra,
+  navExtra,
+  footerExtra,
 }: SidebarProps) {
   const currentUserRole = currentUser?.role ?? null;
   const [isDark, setIsDark] = useState(false);
@@ -140,9 +147,11 @@ export function Sidebar({
         <NavLink to="/" className="text-lg font-bold tracking-tight">
           Cadence
         </NavLink>
+        {headerExtra}
       </div>
 
       <nav className="flex-1 space-y-1 p-3">
+        {navExtra}
         {navItems
           .filter((item) => isVisible(item, currentUserRole))
           .map((item) => (
@@ -242,6 +251,7 @@ export function Sidebar({
                 {currentUser.role}
               </div>
             </div>
+            {footerExtra}
             <NavLink
               to="/settings"
               title="Settings"

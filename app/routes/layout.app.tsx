@@ -3,6 +3,19 @@ import type { Route } from "./+types/layout.app";
 import { Sidebar } from "~/components/sidebar";
 import { DevUI } from "~/components/dev-ui";
 import { Toaster } from "sonner";
+// PROTOTYPE (Notification Feed) — throwaway, never merge to main.
+import {
+  feedConfig,
+  signFeedToken,
+} from "~/lib/notification-feed.prototype.server";
+import {
+  NotificationFeedProvider,
+  PrototypeSwitcher,
+  useVariant,
+  VariantABell,
+  VariantBNavItem,
+  VariantCDrawer,
+} from "~/components/notification-feed.prototype";
 import { getCurrentUserId, getDevCountry } from "~/lib/session";
 import { getCountryTierInfo, COUNTRIES } from "~/lib/ppp";
 import { eq, and, or, sql, desc } from "drizzle-orm";
@@ -185,7 +198,11 @@ export async function loader({ request }: Route.LoaderArgs) {
           course.courseId
         );
         const totalLessons = getTotalLessonCount(course.courseId);
-        const progress = calculateProgress(currentUserId, course.courseId, false);
+        const progress = calculateProgress(
+          currentUserId,
+          course.courseId,
+          false
+        );
         return {
           courseId: course.courseId,
           title: course.courseTitle,
@@ -213,6 +230,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     countryTierInfo,
     countries: COUNTRIES,
     isTeamAdmin: currentUserId ? isTeamAdmin(currentUserId) : false,
+    feed: currentUserId
+      ? {
+          ...feedConfig(),
+          userToken: await signFeedToken(currentUserId),
+          knockUserId: String(currentUserId),
+        }
+      : null,
   };
 }
 
@@ -225,26 +249,34 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
     countryTierInfo,
     countries,
     isTeamAdmin: userIsTeamAdmin,
+    feed,
   } = loaderData;
+  const variant = useVariant();
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        currentUser={currentUser}
-        recentCourses={recentCourses}
-        isTeamAdmin={userIsTeamAdmin}
-      />
-      <main className="flex-1 overflow-y-auto">
-        <Outlet />
-      </main>
-      <DevUI
-        users={users}
-        currentUser={currentUser}
-        devCountry={devCountry}
-        countryTierInfo={countryTierInfo}
-        countries={countries}
-      />
-      <Toaster position="bottom-right" richColors closeButton />
-    </div>
+    <NotificationFeedProvider key={feed?.knockUserId} config={feed}>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar
+          currentUser={currentUser}
+          recentCourses={recentCourses}
+          isTeamAdmin={userIsTeamAdmin}
+          headerExtra={variant === "A" ? <VariantABell /> : null}
+          navExtra={variant === "B" ? <VariantBNavItem /> : null}
+          footerExtra={variant === "C" ? <VariantCDrawer /> : null}
+        />
+        <main className="flex-1 overflow-y-auto">
+          <Outlet />
+        </main>
+        <DevUI
+          users={users}
+          currentUser={currentUser}
+          devCountry={devCountry}
+          countryTierInfo={countryTierInfo}
+          countries={countries}
+        />
+        <Toaster position="bottom-right" richColors closeButton />
+        {feed && <PrototypeSwitcher current={variant} />}
+      </div>
+    </NotificationFeedProvider>
   );
 }
